@@ -8,6 +8,10 @@
 // Inside the grader the output directory is /output. The program writes
 // the same bytes on every run: it only copies files and builds the
 // dossier from them, so two runs are byte-identical.
+//
+// v2 is a polish pass on the v1 game: the dam, the bridge, the sky and
+// the title silhouette are richer, and the screenshots are re-taken.
+// The mechanics, the route, the HUD and the shot presets are unchanged.
 
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -44,7 +48,7 @@ function handIn() {
   // A one-line summary of the hand-in, for the build log.
   const shotNames = existsSync(shotsOut) ? readdirSync(shotsOut).sort() : [];
   const dossierBytes = statSync(join(outDir, 'dossier.json')).size;
-  console.log(`sunset-red-canyon: game + ${shotNames.length} screenshots (${shotNames.join(', ')}) + dossier.json (${dossierBytes} bytes) -> ${outDir}`);
+  console.log(`sunset-red-canyon v2: game + ${shotNames.length} screenshots (${shotNames.join(', ')}) + dossier.json (${dossierBytes} bytes) -> ${outDir}`);
 }
 
 handIn();

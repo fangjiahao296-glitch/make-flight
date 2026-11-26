@@ -87,17 +87,27 @@ export function drawSky(ctx, w, h, sunX, sunY) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h * 0.62 + 2);
 
-  // Sun with a warm halo.
-  const halo = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 150);
+  // Sun with a warm halo, big enough to light the whole dusk sky.
+  const halo = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 230);
   halo.addColorStop(0, rgba(SUN_CORE, 0.95));
-  halo.addColorStop(0.25, rgba([255, 170, 80], 0.5));
+  halo.addColorStop(0.18, rgba([255, 170, 80], 0.55));
+  halo.addColorStop(0.5, rgba([255, 150, 70], 0.18));
   halo.addColorStop(1, rgba([255, 140, 60], 0));
   ctx.fillStyle = halo;
-  ctx.fillRect(sunX - 150, sunY - 150, 300, 300);
+  ctx.fillRect(sunX - 230, sunY - 230, 460, 460);
   ctx.fillStyle = rgb(SUN_CORE);
   ctx.beginPath();
   ctx.arc(sunX, sunY, 34, 0, Math.PI * 2);
   ctx.fill();
+
+  // A warm glow band hugging the horizon, so the sky burns brightest
+  // where the canyon meets it.
+  const glow = ctx.createLinearGradient(0, h * 0.38, 0, h * 0.62);
+  glow.addColorStop(0, rgba([255, 166, 88], 0));
+  glow.addColorStop(0.55, rgba([255, 166, 88], 0.24));
+  glow.addColorStop(1, rgba([255, 166, 88], 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, h * 0.38, w, h * 0.24);
 
   // Thin warm cloud bands.
   ctx.fillStyle = rgba([255, 190, 120], 0.16);
@@ -124,6 +134,25 @@ export function drawSky(ctx, w, h, sunX, sunY) {
       ctx.lineTo(x, yy);
     }
     ctx.lineTo(w, h * r.y + 30);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Flat-topped mesas on the horizon: desert silhouettes that read at a
+  // glance, hazed so they sit far behind the canyon walls.
+  const mesaCol = rgb(mix(ROCK_FAR, HAZE, 0.45));
+  const mesas = [
+    { cx: 0.10, topW: 0.075, baseW: 0.115, topY: 0.435, baseY: 0.52 },
+    { cx: 0.44, topW: 0.11, baseW: 0.16, topY: 0.42, baseY: 0.52 },
+    { cx: 0.90, topW: 0.06, baseW: 0.095, topY: 0.45, baseY: 0.52 },
+  ];
+  ctx.fillStyle = mesaCol;
+  for (const m of mesas) {
+    ctx.beginPath();
+    ctx.moveTo(w * (m.cx - m.baseW), h * m.baseY);
+    ctx.lineTo(w * (m.cx - m.topW), h * m.topY);
+    ctx.lineTo(w * (m.cx + m.topW), h * m.topY);
+    ctx.lineTo(w * (m.cx + m.baseW), h * m.baseY);
     ctx.closePath();
     ctx.fill();
   }
@@ -184,6 +213,23 @@ export function drawCanyon(ctx, cam, w, h, flight) {
       poly(ctx, [a.fl, a.fr, b.fr, b.fl]);
     }
 
+    // Sun glitter on the water: a thin gold flash on each river
+    // stretch, sun-side, brighter up close, so the river reads as
+    // lit water instead of a flat teal floor.
+    if (b && b.mid && a.mid) {
+      const glintJit = ((((i + 7) * 2654435761) >>> 0) % 100) / 100;
+      const riverHalf = (a.fr.x - a.fl.x) / 2;
+      const gx = lerp(a.mid.x, b.mid.x, 0.5) + riverHalf * (0.18 + glintJit * 0.2);
+      const gy = lerp(a.mid.y, b.mid.y, 0.5);
+      const halfLen = Math.max(6, riverHalf * 0.09);
+      ctx.strokeStyle = rgba(RIVER_GLINT, (1 - haze) * 0.4 + 0.08);
+      ctx.lineWidth = Math.max(1.5, 2.5 * (1 - haze) + 0.5);
+      ctx.beginPath();
+      ctx.moveTo(gx - halfLen, gy);
+      ctx.lineTo(gx + halfLen, gy);
+      ctx.stroke();
+    }
+
     // Left wall: two strata bands, darker toward the water. A small
     // deterministic shade jitter per section breaks up the banding so
     // the walls read as rock, not flat panels.
@@ -217,57 +263,137 @@ export function drawCanyon(ctx, cam, w, h, flight) {
   drawRings(ctx, cam, focal, w, flight);
 }
 
-// The steel truss bridge across the canyon.
+// The suspension bridge across the canyon: a rust-red deck, two tall
+// towers, a sagging main cable and suspenders. The towers rise far
+// above the deck, so the bridge reads as a bridge even seen edge-on
+// from the flight path, and the ring at its span is its opening.
 function drawBridge(ctx, cam, focal, w) {
   const s = BRIDGE_S;
   if (s < cam.s + 40 || s > cam.s + VIEW_DISTANCE) return;
   const cx = centreXAt(s);
   const half = halfWidthAt(s);
   const deckY = 150;
-  const left = project(cam, focal, w, cx - half - 30, deckY, s);
-  const right = project(cam, focal, w, cx + half + 30, deckY, s);
+  const towerTopY = deckY + 85;
+  const xAt = (f) => cx - half - 30 + f * (2 * half + 60);
+  const left = project(cam, focal, w, xAt(0), deckY, s);
+  const right = project(cam, focal, w, xAt(1), deckY, s);
   if (!left || !right) return;
   const t = clamp((s - cam.s) / VIEW_DISTANCE, 0, 1);
-  const steel = mix([150, 108, 78], HAZE, Math.pow(t, 0.7));
-  ctx.strokeStyle = rgb(steel);
-  ctx.lineWidth = Math.max(3, 10 * left.scale * 0.02 + 3);
-  // Deck.
-  ctx.beginPath();
-  ctx.moveTo(left.x, left.y);
-  ctx.lineTo(right.x, right.y);
-  ctx.stroke();
-  // Truss zig-zag under the deck.
-  ctx.lineWidth = Math.max(2, 5 * left.scale * 0.02 + 1.5);
-  ctx.beginPath();
-  const n = 9;
-  for (let i = 0; i <= n; i++) {
-    const x = lerp(left.x, right.x, i / n);
-    const y = left.y + (i % 2 === 0 ? 0 : 20 * left.scale * 0.05 + 8);
-    if (i === 0) ctx.moveTo(x, left.y);
-    else ctx.lineTo(x, y);
-    ctx.lineTo(lerp(left.x, right.x, (i + 0.5) / n), left.y);
-  }
-  ctx.stroke();
-  // Two towers.
-  ctx.lineWidth = Math.max(2, 5 * left.scale * 0.02 + 1);
-  for (const f of [0.3, 0.7]) {
-    const x = lerp(left.x, right.x, f);
+  const hazed = (c) => rgb(mix(c, HAZE, Math.pow(t, 0.7)));
+  const lw = (base) => Math.max(2, base + left.scale * 0.35);
+
+  // Deck: a filled band, sunlit gold on top, dark rust underneath.
+  const dl = project(cam, focal, w, xAt(0), deckY - 7, s);
+  const dr = project(cam, focal, w, xAt(1), deckY - 7, s);
+  if (dl && dr) {
+    ctx.fillStyle = hazed([96, 62, 44]);
+    poly(ctx, [left, right, dr, dl]);
+    ctx.strokeStyle = hazed([255, 200, 110]);
+    ctx.lineWidth = lw(4);
     ctx.beginPath();
-    ctx.moveTo(x, left.y);
-    ctx.lineTo(x, left.y - 42 * left.scale * 0.05 - 14);
+    ctx.moveTo(left.x, left.y);
+    ctx.lineTo(right.x, right.y);
     ctx.stroke();
   }
-  // Deck lights.
+
+  // Towers: two legs each, with a crossbar, rust red with gold tips.
+  for (const f of [0.28, 0.72]) {
+    const tx = xAt(f);
+    for (const leg of [-5, 5]) {
+      const base = project(cam, focal, w, tx + leg, deckY, s);
+      const top = project(cam, focal, w, tx + leg, towerTopY, s);
+      if (!base || !top) continue;
+      ctx.strokeStyle = hazed([198, 96, 54]);
+      ctx.lineWidth = lw(5);
+      ctx.beginPath();
+      ctx.moveTo(base.x, base.y);
+      ctx.lineTo(top.x, top.y);
+      ctx.stroke();
+    }
+    const barA = project(cam, focal, w, tx - 5, towerTopY - 26, s);
+    const barB = project(cam, focal, w, tx + 5, towerTopY - 26, s);
+    if (barA && barB) {
+      ctx.strokeStyle = hazed([198, 96, 54]);
+      ctx.lineWidth = lw(2.5);
+      ctx.beginPath();
+      ctx.moveTo(barA.x, barA.y);
+      ctx.lineTo(barB.x, barB.y);
+      ctx.stroke();
+    }
+    const tip = project(cam, focal, w, tx, towerTopY + 4, s);
+    if (tip) {
+      ctx.fillStyle = rgb(GOLD);
+      ctx.beginPath();
+      ctx.arc(tip.x, tip.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Main cable: up over both tower tops, sagging low at mid-span.
+  const anchorL = project(cam, focal, w, xAt(0), deckY + 12, s);
+  const anchorR = project(cam, focal, w, xAt(1), deckY + 12, s);
+  const topL = project(cam, focal, w, xAt(0.28), towerTopY, s);
+  const topR = project(cam, focal, w, xAt(0.72), towerTopY, s);
+  const midLowY = deckY + 18;
+  const ctrlY = 2 * midLowY - towerTopY; // quadratic control for the sag
+  const midX = xAt(0.5);
+  const ctrl = project(cam, focal, w, midX, ctrlY, s);
+  if (anchorL && anchorR && topL && topR && ctrl) {
+    ctx.strokeStyle = hazed([64, 54, 50]);
+    ctx.lineWidth = lw(2.5);
+    ctx.beginPath();
+    ctx.moveTo(anchorL.x, anchorL.y);
+    ctx.lineTo(topL.x, topL.y);
+    ctx.quadraticCurveTo(ctrl.x, ctrl.y, topR.x, topR.y);
+    ctx.lineTo(anchorR.x, anchorR.y);
+    ctx.stroke();
+  }
+
+  // Suspenders: short verticals from the cable down to the deck.
+  ctx.strokeStyle = hazed([90, 76, 66]);
+  ctx.lineWidth = lw(1.5);
+  for (let i = 1; i <= 9; i++) {
+    const f = 0.28 + (i / 10) * 0.44;
+    const u = (f - 0.28) / 0.44;
+    const cableY = (1 - u) * (1 - u) * towerTopY + 2 * (1 - u) * u * ctrlY + u * u * towerTopY;
+    const top = project(cam, focal, w, xAt(f), cableY, s);
+    const bot = project(cam, focal, w, xAt(f), deckY, s);
+    if (!top || !bot) continue;
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(bot.x, bot.y);
+    ctx.stroke();
+  }
+
+  // Truss zig-zag under the deck, bolder than before.
+  if (dl && dr) {
+    ctx.strokeStyle = hazed([120, 84, 60]);
+    ctx.lineWidth = lw(2);
+    ctx.beginPath();
+    const n = 9;
+    for (let i = 0; i <= n; i++) {
+      const x = lerp(left.x, right.x, i / n);
+      const y = left.y + (i % 2 === 0 ? 0 : 16 * left.scale * 0.05 + 6);
+      if (i === 0) ctx.moveTo(x, left.y);
+      else ctx.lineTo(x, y);
+      ctx.lineTo(lerp(left.x, right.x, (i + 0.5) / n), left.y);
+    }
+    ctx.stroke();
+  }
+
+  // Deck lights, warm and a touch bigger.
   ctx.fillStyle = rgb(GOLD);
   for (let i = 0; i <= 8; i++) {
     const x = lerp(left.x, right.x, i / 8);
     ctx.beginPath();
-    ctx.arc(x, left.y - 3, 2.2, 0, Math.PI * 2);
+    ctx.arc(x, left.y - 3, 3, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-// The concrete dam wall, with a spillway notch.
+// The concrete dam wall: an arched crest, buttress pilasters, pour
+// lines, three spillway gates pouring water, and a shadowed base, so
+// it reads as a dam and not a blank slab.
 function drawDam(ctx, cam, focal, w) {
   const s = DAM_S;
   if (s < cam.s + 40 || s > cam.s + VIEW_DISTANCE) return;
@@ -275,29 +401,114 @@ function drawDam(ctx, cam, focal, w) {
   const half = halfWidthAt(s);
   const fl = floorAt(s);
   const top = 190;
-  const bl = project(cam, focal, w, cx - half, fl, s);
-  const br = project(cam, focal, w, cx + half, fl, s);
-  const tl = project(cam, focal, w, cx - half, top, s);
-  const tr = project(cam, focal, w, cx + half, top, s);
-  if (!bl || !br || !tl || !tr) return;
+  const arch = 16; // the crest crowns higher in the middle
+  const topAt = (f) => project(cam, focal, w, cx - half + f * 2 * half, top + arch * Math.sin(Math.PI * f), s);
+  const botAt = (f) => project(cam, focal, w, cx - half + f * 2 * half, fl, s);
+  const bl = botAt(0);
+  const br = botAt(1);
+  if (!bl || !br) return;
   const t = clamp((s - cam.s) / VIEW_DISTANCE, 0, 1);
-  const concrete = mix([184, 168, 148], HAZE, Math.pow(t, 0.7));
-  ctx.fillStyle = rgb(concrete);
-  poly(ctx, [bl, br, tr, tl]);
-  // Vertical seams.
-  ctx.strokeStyle = rgba([90, 80, 70], 0.55);
+  const hazeT = Math.pow(t, 0.7);
+  const hazed = (c) => rgb(mix(c, HAZE, hazeT));
+
+  // Wall body with its arched crest.
+  const topPts = [];
+  for (let k = 0; k <= 8; k++) {
+    const p = topAt(k / 8);
+    if (!p) return;
+    topPts.push(p);
+  }
+  ctx.fillStyle = hazed([176, 158, 136]);
+  poly(ctx, [bl, br, ...topPts.slice().reverse()]);
+
+  // Rock shoulders where the wall keys into the canyon sides.
+  ctx.fillStyle = hazed(ROCK_NEAR);
+  const shL0 = topAt(0);
+  const shL1 = project(cam, focal, w, cx - half - 46, top - 34, s);
+  const shL2 = project(cam, focal, w, cx - half - 20, fl, s);
+  if (shL0 && shL1 && shL2) poly(ctx, [shL0, shL1, shL2, bl]);
+  const shR0 = topAt(1);
+  const shR1 = project(cam, focal, w, cx + half + 46, top - 34, s);
+  const shR2 = project(cam, focal, w, cx + half + 20, fl, s);
+  if (shR0 && shR1 && shR2) poly(ctx, [shR0, shR1, shR2, br]);
+
+  // Buttress pilasters: raised ribs down the wall, light on one edge,
+  // dark on the other, so the face has rhythm and depth.
+  for (let i = 1; i < 8; i++) {
+    const f = i / 8;
+    const tp = topAt(f);
+    const bp = botAt(f);
+    if (!tp || !bp) continue;
+    const wdt = Math.max(2.5, (br.x - bl.x) * 0.008);
+    ctx.fillStyle = rgba([120, 104, 86], 0.5);
+    ctx.fillRect(tp.x - wdt / 2, tp.y, wdt, bp.y - tp.y);
+    ctx.fillStyle = rgba([255, 235, 200], 0.35);
+    ctx.fillRect(tp.x - wdt / 2, tp.y, 1.2, bp.y - tp.y);
+  }
+
+  // Horizontal pour lines, following the arch of the crest.
+  ctx.strokeStyle = rgba([90, 78, 66], 0.4);
   ctx.lineWidth = 1;
-  for (let i = 1; i < 7; i++) {
-    const f = i / 7;
+  for (const q of [0.3, 0.55, 0.8]) {
     ctx.beginPath();
-    ctx.moveTo(lerp(bl.x, br.x, f), lerp(bl.y, br.y, f));
-    ctx.lineTo(lerp(tl.x, tr.x, f), lerp(tl.y, tr.y, f));
+    for (let k = 0; k <= 8; k++) {
+      const f = k / 8;
+      const tp = topAt(f);
+      const bp = botAt(f);
+      if (!tp || !bp) continue;
+      const x = lerp(tp.x, bp.x, q);
+      const y = lerp(tp.y, bp.y, q);
+      if (k === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
     ctx.stroke();
   }
-  // Spillway: a bright water streak down the middle.
-  const sx = (bl.x + br.x) / 2;
-  ctx.fillStyle = rgba([190, 225, 235], 0.75);
-  ctx.fillRect(sx - 5, tl.y + (tr.y - tl.y) * 0.2, 10, (bl.y - tl.y) * 0.8);
+
+  // Three spillway gates near the crest, pouring white water.
+  for (const gf of [0.38, 0.5, 0.62]) {
+    const gw = 0.045; // gate half-width, as a fraction of the wall
+    const gTopL = topAt(gf - gw);
+    const gTopR = topAt(gf + gw);
+    const gBotL = project(cam, focal, w, cx - half + (gf - gw) * 2 * half, top + arch * Math.sin(Math.PI * (gf - gw)) - 24, s);
+    const gBotR = project(cam, focal, w, cx - half + (gf + gw) * 2 * half, top + arch * Math.sin(Math.PI * (gf + gw)) - 24, s);
+    const bL = botAt(gf - gw * 0.7);
+    const bR = botAt(gf + gw * 0.7);
+    if (!gTopL || !gTopR || !gBotL || !gBotR || !bL || !bR) continue;
+    ctx.fillStyle = rgb([52, 58, 62]);
+    poly(ctx, [gTopL, gTopR, gBotR, gBotL]);
+    ctx.fillStyle = rgba([196, 228, 238], 0.8);
+    poly(ctx, [gBotL, gBotR, bR, bL]);
+    ctx.fillStyle = rgba([240, 250, 252], 0.85);
+    ctx.fillRect(lerp(gBotL.x, gBotR.x, 0.5) - 2, lerp(gBotL.y, gBotR.y, 0.5), 4, (bL.y - gBotL.y) * 0.9);
+  }
+
+  // Foam where the spillways hit the river.
+  ctx.fillStyle = rgba([240, 250, 252], 0.5);
+  const foamY = lerp(topAt(0.5).y, botAt(0.5).y, 0.94);
+  ctx.beginPath();
+  ctx.ellipse((bl.x + br.x) / 2, foamY, (br.x - bl.x) * 0.2, Math.max(3, (br.y - bl.y) * 0.03), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shadowed base, so the wall sits in the water instead of floating.
+  ctx.fillStyle = rgba([40, 32, 26], 0.28);
+  ctx.beginPath();
+  for (let k = 0; k <= 8; k++) {
+    const f = k / 8;
+    const tp = topAt(f);
+    const bp = botAt(f);
+    if (!tp || !bp) continue;
+    const x = lerp(tp.x, bp.x, 0.85);
+    const y = lerp(tp.y, bp.y, 0.85);
+    if (k === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  for (let k = 8; k >= 0; k--) {
+    const bp = botAt(k / 8);
+    if (!bp) continue;
+    ctx.lineTo(bp.x, bp.y);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 // The runway in the flat valley past the dam.
@@ -314,6 +525,16 @@ function drawRunway(ctx, cam, focal, w) {
   if (!a || !b || !c || !d) return;
   ctx.fillStyle = rgb([43, 43, 48]);
   poly(ctx, [a, b, c, d]);
+  // Threshold bar at the runway start: a wide white stripe the pilot
+  // (and the land screenshot) can read at a glance.
+  const t1 = project(cam, focal, w, cx - hw, 2.4, s0 + 8);
+  const t2 = project(cam, focal, w, cx + hw, 2.4, s0 + 8);
+  const t3 = project(cam, focal, w, cx + hw, 2.4, s0 + 22);
+  const t4 = project(cam, focal, w, cx - hw, 2.4, s0 + 22);
+  if (t1 && t2 && t3 && t4) {
+    ctx.fillStyle = rgb([240, 240, 230]);
+    poly(ctx, [t1, t2, t3, t4]);
+  }
   // Centreline dashes.
   ctx.fillStyle = rgb([240, 240, 230]);
   for (let s = s0 + 20; s < s1; s += 60) {
@@ -364,6 +585,16 @@ function drawRings(ctx, cam, focal, w, flight) {
     ctx.beginPath();
     ctx.ellipse(c.x, c.y, r, r * 0.94, 0, 0, Math.PI * 2);
     ctx.stroke();
+    // The next ring gets a second, wider halo so it reads as a lit
+    // golden gate from far down the canyon.
+    if (state === 'next') {
+      ctx.globalAlpha = 0.28;
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = Math.max(2, r * 0.05);
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, r * 1.2, r * 1.13, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
     // Ring number above the next ring.
     if (state === 'next') {
@@ -625,11 +856,11 @@ export function renderWorld(ctx, w, h, flight, view, time) {
   } else if (view === 'cockpit') {
     drawCockpit(ctx, w, h, flight);
   } else if (view === 'title') {
-    // A lone aircraft silhouetted against the setting sun, between the
-    // subtitle and the menu panel so it is never hidden by either.
+    // A lone aircraft silhouetted against the setting sun, out on the
+    // right where the title text never reaches it, banking gently.
     ctx.save();
-    ctx.translate(w * 0.42, h * 0.41);
-    ctx.scale(1.0, 1.0);
+    ctx.translate(w * 0.79, h * 0.36);
+    ctx.rotate(-0.14);
     ctx.globalAlpha = 0.92;
     ctx.fillStyle = rgb([30, 18, 14]);
     ctx.beginPath();
